@@ -49,7 +49,7 @@ class OrdersTests(APITestCase):
             'revisions': 3,
             'delivery_time_in_days': 7,
         }
-        response = self.customer_client.patch(url, data, format='json')
+        response = self.business_client.patch(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_delete_offers_order(self):

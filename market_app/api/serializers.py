@@ -7,6 +7,15 @@ class OfferOptionSerializer(serializers.ModelSerializer):
         model = OfferOption
         exclude = ['offer'] 
 
+class OfferOptionUrlSerializer(serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+    class Meta:
+        model = OfferOption
+        fields = ['id', 'url']
+
+    def get_url(self, obj):
+        return f"/offerdetails/{obj.id}" 
+        
 class OfferSerializer(serializers.ModelSerializer):
     details = serializers.SerializerMethodField()
     min_price = serializers.SerializerMethodField()
@@ -16,22 +25,12 @@ class OfferSerializer(serializers.ModelSerializer):
     class Meta:
         model = Offer
         fields = [
-            'id', 'title', 'description', 'image', 'user',
+            'id', 'user', 'title', 'image', 'description', 'created_at', 'updated_at',
             'details', 'min_price', 'min_delivery_time', 'user_details',
-            'created_at', 'updated_at'
         ]
         extra_kwargs = {
             'user': {'read_only': True}
         }
-
-    def get_details(self, obj):
-        return OfferOptionSerializer(obj.offeroption_set.all(), many=True).data
-
-    def to_internal_value(self, data):
-        details_data = data.pop('details', [])
-        ret = super().to_internal_value(data)
-        ret['details'] = details_data
-        return ret
 
     def create(self, validated_data):
         details_data = validated_data.pop('details', [])
@@ -41,6 +40,9 @@ class OfferSerializer(serializers.ModelSerializer):
         ])
         return offer
 
+    def get_details(self, obj):
+        return OfferOptionUrlSerializer(obj.offeroption_set.all(), many=True).data
+    
     def get_min_price(self, obj):
         prices = obj.offeroption_set.values_list('price', flat=True)
         return float(min(prices)) if prices else None
@@ -48,7 +50,7 @@ class OfferSerializer(serializers.ModelSerializer):
     def get_min_delivery_time(self, obj):
         times = obj.offeroption_set.values_list('delivery_time_in_days', flat=True)
         return min(times) if times else None
-
+    
     def get_user_details(self, obj):
         profile = getattr(obj.user, 'profile', None)
         return {
@@ -56,6 +58,14 @@ class OfferSerializer(serializers.ModelSerializer):
             "last_name": getattr(profile, 'last_name', ''),
             "username": obj.user.username
         }
+    
+    def to_internal_value(self, data):
+        details_data = data.pop('details', [])
+        ret = super().to_internal_value(data)
+        ret['details'] = details_data
+        return ret
+
+
 
 
 class OrderSerializer(serializers.ModelSerializer):

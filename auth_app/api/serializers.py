@@ -9,11 +9,20 @@ from market_app.models import Offer
 
 class ProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
-    email = serializers.EmailField(source='user.email', read_only=True)
+    email = serializers.EmailField(source='user.email')
 
     class Meta:
         model = Profile
         exclude = []
+
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop('user', {})
+        
+        if 'email' in user_data:
+            instance.user.email = user_data['email']
+            instance.user.save()
+
+        return super().update(instance, validated_data)
 
 
 class RegisterSerializer(serializers.ModelSerializer):

@@ -28,7 +28,7 @@ SECRET_KEY = 'django-insecure-&e8!y$x)753s@vn7m6n$-7nmplfxo=iez9)cs7-5%oz&@s$v3$
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'adrian-ensslin.developerakademie.net']
 
 
 
@@ -64,11 +64,13 @@ MIDDLEWARE = [
 CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1',
     'http://localhost:5500',
-    ]
+    'https://adrian-ensslin.developerakademie.net',
+]
 
 CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5500",
     "http://localhost:5500",
+    "https://adrian-ensslin.developerakademie.net",
 ]
 
 ROOT_URLCONF = 'coderr_main.urls'

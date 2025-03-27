@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 
 class Offer(models.Model):
     title = models.CharField(max_length=50)
-    image = models.ImageField(upload_to='offerImages/', blank=True)
+    image = models.ImageField(upload_to='offerImages/', blank=True, null=True)
     description = models.TextField(max_length=200)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)

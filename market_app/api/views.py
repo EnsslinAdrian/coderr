@@ -2,7 +2,7 @@ from rest_framework import generics
 from .serializers import OrderSerializer, OfferSerializer, OfferOptionSerializer, ReviewSerializer, BaseInfoSerializer
 from market_app.models import Order, Offer, OfferOption, Review, BaseInfo
 from auth_app.models import Profile
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -65,6 +65,28 @@ class OrderSingleView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_object(self):
+        try:
+            return Order.objects.get(pk=self.kwargs['pk'])
+        except Order.DoesNotExist:
+            raise NotFound('Die Bestellung mit der angegebenen ID wurde nicht gefunden.')
+
+    def update(self, request, *args, **kwargs):
+        order = self.get_object()
+        if request.user != order.business_user:
+            return Response(
+                {"detail": "Benutzer hat keine Berechtigung, diese Bestellung zu aktualisieren."}, status=403
+            )
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            raise PermissionDenied("Benutzer hat keine Berechtigung, die Bestellung zu löschen.")
+        super().destroy(request, *args, **kwargs)
+        return Response(
+            {"message": "Die Bestellung wurde erfolgreich gelöscht. Keine weiteren Inhalte in der Antwort."}, status=204
+        )
+
 
 class OffersFrontendCompatibleView(generics.ListCreateAPIView):
     serializer_class = OfferSerializer
@@ -93,7 +115,7 @@ class OffersFrontendCompatibleView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         profile = Profile.objects.filter(user=self.request.user).first()
         if not profile or profile.type != 'business':
-            raise PermissionError("Nur Business-Accounts dürfen Angebote erstellen.")
+            raise PermissionDenied("Nur Business-Accounts dürfen Angebote erstellen.")
         serializer.save(user=self.request.user)
 
 class OfferSingleView(generics.RetrieveUpdateDestroyAPIView):
@@ -101,10 +123,32 @@ class OfferSingleView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = OfferSerializer
     permission_classes = [AllowAny]
 
+    def get_object(self):
+            try:
+                offer = Offer.objects.get(pk=self.kwargs["pk"])
+            except Offer.DoesNotExist:
+                raise NotFound(" Das Angebot mit der angegebenen ID wurde nicht gefunden.")
+
+            if self.request.method in ['PATCH', 'PUT', 'DELETE']:
+                if offer.user != self.request.user:
+                    raise PermissionDenied("Authentifizierter Benutzer ist nicht der Eigentümer des Angebots.")
+
+            return offer
+
+    def destroy(self, request, *args, **kwargs):
+        super().destroy(request, *args, **kwargs)
+        return Response({"message": "Das Angebot wurde erfolgreich gelöscht."}, status=204)
+
 class OfferOptionSingleView(generics.RetrieveUpdateDestroyAPIView):
     queryset = OfferOption.objects.all()
     serializer_class = OfferOptionSerializer
     permission_classes = [AllowAny]
+
+    def get_object(self):
+        try:
+            return OfferOption.objects.get(pk=self.kwargs["pk"])
+        except OfferOption.DoesNotExist:
+            raise NotFound("Das Angebotsdetail mit der angegebenen ID wurde nicht gefunden.")
 
 
 class ReviewView(generics.ListCreateAPIView):
@@ -114,23 +158,17 @@ class ReviewView(generics.ListCreateAPIView):
     ordering_fields = ['created_at', 'updated_at', 'rating']
 
     def get_queryset(self):
-        user = self.request.user
-        profile = Profile.objects.filter(user=user).first()
-
+        queryset = Review.objects.all()
         business_user_id = self.request.query_params.get("business_user_id")
-        if business_user_id:
-            return Review.objects.filter(business_user__id=business_user_id)
-
         reviewer_id = self.request.query_params.get("reviewer_id")
+
+        if business_user_id:
+            queryset = queryset.filter(business_user__id=business_user_id)
+
         if reviewer_id:
-            return Review.objects.filter(reviewer__id=reviewer_id)
+            queryset = queryset.filter(reviewer__id=reviewer_id)
 
-        if profile:
-            if profile.type == "business":
-                return Review.objects.filter(business_user=user)
-            return Review.objects.filter(reviewer=user)
-
-        return Review.objects.none()
+        return queryset
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -139,7 +177,7 @@ class ReviewView(generics.ListCreateAPIView):
         business_user = get_object_or_404(User, id=business_user_id)
 
         if Review.objects.filter(reviewer=user, business_user=business_user).exists():
-            raise ValidationError("Du hast diesen Anbieter bereits bewertet.")
+            raise ValidationError("Fehlerhafte Anfrage. Der Benutzer hat möglicherweise bereits eine Bewertung für das gleiche Geschäftsprofil abgegeben.")
 
         serializer.save(reviewer=user, business_user=business_user)
 
@@ -147,6 +185,22 @@ class ReviewSingleView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Review.objects.all()
     serializer_class = ReviewSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        try:
+            review = Review.objects.get(pk=self.kwargs['pk'])
+        except Review.DoesNotExist:
+            raise NotFound("Nicht gefunden. Es wurde keine Bewertung mit der angegebenen ID gefunden.")
+
+        if self.request.method in ['PATCH', 'PUT', 'DELETE']:
+            if review.reviewer != self.request.user:
+                raise PermissionDenied("Der Benutzer ist nicht berechtigt, diese Bewertung zu bearbeiten")
+
+        return review
+
+    def destroy(self, request, *args, **kwargs):
+        super().destroy(request, *args, **kwargs)
+        return Response({"message": "Erfolgreich gelöscht. Es wird kein Inhalt zurückgegeben."}, status=204)
 
 
 class BaseView(APIView):
