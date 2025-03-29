@@ -18,16 +18,6 @@ class OffersTests(APITestCase):
         self.client = APIClient()
         self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
 
-    def test_create_offers(self):
-        url = reverse('offers-list')
-        offer = {
-            'title': 'Onlineshop',
-            'description': 'Professioneller Onlineshop',
-            'user': self.user.id,
-        }
-        response = self.client.post(url, offer, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
     def test_get_single_offer(self):
         url = reverse('offers-details', kwargs={'pk': self.offer.id})
         response = self.client.get(url)

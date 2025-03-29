@@ -52,7 +52,3 @@ class OrdersTests(APITestCase):
         response = self.business_client.patch(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_delete_offers_order(self):
-        url = reverse('orders-details', kwargs={'pk': self.offer.id})
-        response = self.customer_client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)

@@ -1,8 +1,8 @@
 from rest_framework import generics
-from .serializers import OrderSerializer, OfferSerializer, OfferOptionSerializer, ReviewSerializer, BaseInfoSerializer
+from .serializers import OrderSerializer, OfferSerializer, OfferOptionSerializer, ReviewSerializer, BaseInfoSerializer, OfferDetailSerializer
 from market_app.models import Order, Offer, OfferOption, Review, BaseInfo
 from auth_app.models import Profile
-from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
+from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound, NotAuthenticated
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -15,13 +15,15 @@ from rest_framework import filters
 from .filters import OfferFilter
 from django.db.models import Min
 from django.shortcuts import get_object_or_404
+from .base import CustomBaseView
+
 
 class CustomPagination(PageNumberPagination):
     page_size = 6
     page_size_query_param = 'page_size'
     max_page_size = 6
 
-class OrderView(generics.ListCreateAPIView):
+class OrderView(CustomBaseView, generics.ListCreateAPIView):
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
 
@@ -88,9 +90,9 @@ class OrderSingleView(generics.RetrieveUpdateDestroyAPIView):
         )
 
 
-class OffersFrontendCompatibleView(generics.ListCreateAPIView):
+class OffersFrontendCompatibleView(CustomBaseView, generics.ListCreateAPIView):
     serializer_class = OfferSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = OfferFilter
@@ -115,13 +117,37 @@ class OffersFrontendCompatibleView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         profile = Profile.objects.filter(user=self.request.user).first()
         if not profile or profile.type != 'business':
-            raise PermissionDenied("Nur Business-Accounts dürfen Angebote erstellen.")
+            raise PermissionDenied("Authentifizierter Benutzer ist kein 'business' Profil.")
         serializer.save(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        details = request.data.get("details")
+
+        if not isinstance(details, list) or len(details) != 3:
+            raise ValidationError({
+                'details': 'Ungültige Anfragedaten oder unvollständige Details.'
+            })
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        offer_instance = serializer.instance
+
+        full_serializer = OfferDetailSerializer(offer_instance, context=self.get_serializer_context())
+        return Response(full_serializer.data, status=status.HTTP_201_CREATED)
 
 class OfferSingleView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Offer.objects.all()
     serializer_class = OfferSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+
+    def handle_exception(self, exc):
+        if isinstance(exc, NotAuthenticated):
+            return Response(
+                {"detail": "Benutzer ist nicht authentifiziert."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        return super().handle_exception(exc)
 
     def get_object(self):
             try:
@@ -142,7 +168,7 @@ class OfferSingleView(generics.RetrieveUpdateDestroyAPIView):
 class OfferOptionSingleView(generics.RetrieveUpdateDestroyAPIView):
     queryset = OfferOption.objects.all()
     serializer_class = OfferOptionSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_object(self):
         try:
@@ -151,7 +177,7 @@ class OfferOptionSingleView(generics.RetrieveUpdateDestroyAPIView):
             raise NotFound("Das Angebotsdetail mit der angegebenen ID wurde nicht gefunden.")
 
 
-class ReviewView(generics.ListCreateAPIView):
+class ReviewView(CustomBaseView, generics.ListCreateAPIView):
     serializer_class = ReviewSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter]
@@ -173,8 +199,11 @@ class ReviewView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         user = self.request.user
         business_user_id = self.request.data.get("business_user")
-
         business_user = get_object_or_404(User, id=business_user_id)
+
+        profile = getattr(user, "profile", None)
+        if profile and profile.type == "business":
+            raise PermissionDenied("Business-Nutzer dürfen keine Bewertungen abgeben.")
 
         if Review.objects.filter(reviewer=user, business_user=business_user).exists():
             raise ValidationError("Fehlerhafte Anfrage. Der Benutzer hat möglicherweise bereits eine Bewertung für das gleiche Geschäftsprofil abgegeben.")
