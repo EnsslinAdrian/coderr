@@ -92,7 +92,7 @@ class OrderSingleView(generics.RetrieveUpdateDestroyAPIView):
 
 class OffersFrontendCompatibleView(CustomBaseView, generics.ListCreateAPIView):
     serializer_class = OfferSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = OfferFilter
