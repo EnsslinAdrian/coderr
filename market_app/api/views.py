@@ -1,5 +1,5 @@
 from rest_framework import generics
-from .serializers import OrderSerializer, OfferSerializer, OfferOptionSerializer, ReviewSerializer, BaseInfoSerializer, OfferDetailSerializer
+from .serializers import OrderSerializer, OfferSerializer, OfferOptionSerializer, ReviewSerializer, BaseInfoSerializer, OfferDetailSerializer, OfferCreateResponseSerializer
 from market_app.models import Order, Offer, OfferOption, Review, BaseInfo
 from auth_app.models import Profile
 from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound, NotAuthenticated
@@ -39,13 +39,22 @@ class OrderView(CustomBaseView, generics.ListCreateAPIView):
             return Order.objects.filter(customer_user=user)
     
     def create(self, request, *args, **kwargs):
+        profile = Profile.objects.filter(user=request.user).first()
+        if not profile or profile.type != 'customer':
+            raise PermissionDenied("Benutzer hat keine Berechtigung.")
+
         offer_detail_id = request.data.get('offer_detail_id')
         if not offer_detail_id:
-            return Response({"error": "offer_detail_id is required."},status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Ungültige Anfragedaten"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            offer_detail_id = int(offer_detail_id)
+        except (TypeError, ValueError):
+            raise ValidationError({"offer_detail_id": "Ungültige Anfragedaten."})
 
         offer_option = OfferOption.objects.filter(id=offer_detail_id).first()
         if not offer_option:
-            return Response({"error": "OfferOption not found."},status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Das angegebene Angebotsdetail wurde nicht gefunden."}, status=status.HTTP_404_NOT_FOUND)
 
         offer = offer_option.offer
         order = Order.objects.create(
@@ -62,7 +71,10 @@ class OrderView(CustomBaseView, generics.ListCreateAPIView):
         serializer = self.get_serializer(order)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-class OrderSingleView(generics.RetrieveUpdateDestroyAPIView):
+        serializer = self.get_serializer(order)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+class OrderSingleView(CustomBaseView, generics.RetrieveUpdateDestroyAPIView):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
@@ -133,12 +145,12 @@ class OffersFrontendCompatibleView(CustomBaseView, generics.ListCreateAPIView):
         self.perform_create(serializer)
         offer_instance = serializer.instance
 
-        full_serializer = OfferDetailSerializer(offer_instance, context=self.get_serializer_context())
+        full_serializer = OfferCreateResponseSerializer(offer_instance, context=self.get_serializer_context())
         return Response(full_serializer.data, status=status.HTTP_201_CREATED)
 
 class OfferSingleView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Offer.objects.all()
-    serializer_class = OfferSerializer
+    serializer_class = OfferDetailSerializer
     permission_classes = [IsAuthenticated]
 
     def handle_exception(self, exc):
@@ -160,15 +172,28 @@ class OfferSingleView(generics.RetrieveUpdateDestroyAPIView):
                     raise PermissionDenied("Authentifizierter Benutzer ist nicht der Eigentümer des Angebots.")
 
             return offer
+    
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        from .serializers import OfferCreateResponseSerializer 
+        response_serializer = OfferCreateResponseSerializer(instance, context=self.get_serializer_context())
+
+        return Response(response_serializer.data)
 
     def destroy(self, request, *args, **kwargs):
         super().destroy(request, *args, **kwargs)
         return Response({"message": "Das Angebot wurde erfolgreich gelöscht."}, status=204)
-
-class OfferOptionSingleView(generics.RetrieveUpdateDestroyAPIView):
+    
+class OfferOptionSingleView(generics.RetrieveAPIView):
     queryset = OfferOption.objects.all()
     serializer_class = OfferOptionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get_object(self):
         try:
@@ -253,8 +278,8 @@ class BaseSingleView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = BaseInfoSerializer
     permission_classes = [AllowAny]
 
-class OrderCountView(APIView):
-    permission_classes = [AllowAny]
+class OrderCountView(CustomBaseView, APIView):
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, pk): 
         count = Order.objects.filter(
@@ -264,8 +289,8 @@ class OrderCountView(APIView):
 
         return Response({"order_count": count})
    
-class CompletedOrderCountView(APIView):
-    permission_classes = [AllowAny]
+class CompletedOrderCountView(CustomBaseView, APIView):
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
         count = Order.objects.filter(

@@ -66,17 +66,20 @@ class OfferSerializer(serializers.ModelSerializer):
         return ret
 
 class OfferDetailSerializer(serializers.ModelSerializer):
-    details = OfferOptionSerializer(source='offeroption_set', many=True, read_only=True)
+    details = serializers.SerializerMethodField()
     min_price = serializers.SerializerMethodField()
     min_delivery_time = serializers.SerializerMethodField()
-    user_details = serializers.SerializerMethodField()
 
     class Meta:
         model = Offer
         fields = [
-            'id', 'title', 'image', 'description', 'details',
-            'min_price', 'min_delivery_time', 'user_details'
+            'id', 'user', 'title', 'image', 'description', 'created_at', 'updated_at',
+            'details', 'min_price', 'min_delivery_time', 
         ]
+
+    def get_details(self, obj):
+        return OfferOptionUrlSerializer(obj.offeroption_set.all(), many=True).data
+    
 
     def get_min_price(self, obj):
         prices = obj.offeroption_set.values_list('price', flat=True)
@@ -86,13 +89,14 @@ class OfferDetailSerializer(serializers.ModelSerializer):
         times = obj.offeroption_set.values_list('delivery_time_in_days', flat=True)
         return min(times) if times else None
 
-    def get_user_details(self, obj):
-        profile = getattr(obj.user, 'profile', None)
-        return {
-            "first_name": getattr(profile, 'first_name', ''),
-            "last_name": getattr(profile, 'last_name', ''),
-            "username": obj.user.username
-        }
+class OfferCreateResponseSerializer(serializers.ModelSerializer):
+    details = OfferOptionSerializer(source='offeroption_set', many=True)
+
+    class Meta:
+        model = Offer
+        fields = [
+            'id', 'title', 'image', 'description', 'details'
+        ]
 
 
 class OrderSerializer(serializers.ModelSerializer):
