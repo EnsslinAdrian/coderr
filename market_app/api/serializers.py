@@ -14,7 +14,7 @@ class OfferOptionUrlSerializer(serializers.ModelSerializer):
         fields = ['id', 'url']
 
     def get_url(self, obj):
-        return f"/offerdetails/{obj.id}" 
+        return f"/offerdetails/{obj.id}/" 
         
 class OfferSerializer(serializers.ModelSerializer):
     details = serializers.SerializerMethodField()
@@ -66,7 +66,7 @@ class OfferSerializer(serializers.ModelSerializer):
         return ret
 
 class OfferDetailSerializer(serializers.ModelSerializer):
-    details = serializers.SerializerMethodField()
+    details = OfferOptionSerializer(source='offeroption_set', many=True)
     min_price = serializers.SerializerMethodField()
     min_delivery_time = serializers.SerializerMethodField()
 
@@ -80,7 +80,20 @@ class OfferDetailSerializer(serializers.ModelSerializer):
     def get_details(self, obj):
         return OfferOptionUrlSerializer(obj.offeroption_set.all(), many=True).data
     
+    def update(self, instance, validated_data):
+        details_data = validated_data.pop('offeroption_set', [])
+        instance = super().update(instance, validated_data)
 
+        for detail_data in details_data:
+            offer_type = detail_data.get('offer_type')
+            option_instance = instance.offeroption_set.filter(offer_type=offer_type).first()
+            if option_instance:
+                for attr, value in detail_data.items():
+                    setattr(option_instance, attr, value)
+                option_instance.save()
+
+        return instance
+    
     def get_min_price(self, obj):
         prices = obj.offeroption_set.values_list('price', flat=True)
         return float(min(prices)) if prices else None

@@ -60,7 +60,7 @@ class OrderView(CustomBaseView, generics.ListCreateAPIView):
         order = Order.objects.create(
             customer_user=request.user,
             business_user=offer.user,
-            title=offer_option.title,
+            title=offer.title,
             revisions=offer_option.revisions,
             delivery_time_in_days=offer_option.delivery_time_in_days,
             price=offer_option.price,
@@ -126,15 +126,15 @@ class OffersFrontendCompatibleView(CustomBaseView, generics.ListCreateAPIView):
 
         return queryset
 
-    def perform_create(self, serializer):
-        profile = Profile.objects.filter(user=self.request.user).first()
-        if not profile or profile.type != 'business':
-            raise PermissionDenied("Authentifizierter Benutzer ist kein 'business' Profil.")
-        serializer.save(user=self.request.user)
-
     def create(self, request, *args, **kwargs):
-        details = request.data.get("details")
+        if not request.user or not request.user.is_authenticated:
+            raise NotAuthenticated("Bitte melde dich an, um ein Angebot zu erstellen.")
 
+        profile = Profile.objects.filter(user=request.user).first()
+        if not profile or profile.type != 'business':
+            raise PermissionDenied("Nur Business-User dürfen Angebote erstellen.")
+
+        details = request.data.get("details")
         if not isinstance(details, list) or len(details) != 3:
             raise ValidationError({
                 'details': 'Ungültige Anfragedaten oder unvollständige Details.'
@@ -142,9 +142,9 @@ class OffersFrontendCompatibleView(CustomBaseView, generics.ListCreateAPIView):
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        offer_instance = serializer.instance
+        serializer.save(user=request.user) 
 
+        offer_instance = serializer.instance
         full_serializer = OfferCreateResponseSerializer(offer_instance, context=self.get_serializer_context())
         return Response(full_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -174,9 +174,12 @@ class OfferSingleView(generics.RetrieveUpdateDestroyAPIView):
             return offer
     
     def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
         instance = self.get_object()
 
+        if instance.user != request.user:
+            raise PermissionDenied("Authentifizierter Benutzer ist nicht der Eigentümer des Angebots.")
+
+        partial = kwargs.pop('partial', False)
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
@@ -187,13 +190,18 @@ class OfferSingleView(generics.RetrieveUpdateDestroyAPIView):
         return Response(response_serializer.data)
 
     def destroy(self, request, *args, **kwargs):
-        super().destroy(request, *args, **kwargs)
+        instance = self.get_object()
+
+        if instance.user != request.user:
+            raise PermissionDenied("Authentifizierter Benutzer ist nicht der Eigentümer des Angebots.")
+
+        self.perform_destroy(instance)
         return Response({"message": "Das Angebot wurde erfolgreich gelöscht."}, status=204)
     
 class OfferOptionSingleView(generics.RetrieveAPIView):
     queryset = OfferOption.objects.all()
     serializer_class = OfferOptionSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_object(self):
         try:
@@ -282,6 +290,11 @@ class OrderCountView(CustomBaseView, APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk): 
+        try:
+            User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            raise NotFound("Kein Geschäftsnutzer mit der angegebenen ID gefunden.")
+        
         count = Order.objects.filter(
             business_user__id=pk,
             status='in_progress'
@@ -293,6 +306,10 @@ class CompletedOrderCountView(CustomBaseView, APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
+        try:
+            User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            raise NotFound("Kein Geschäftsnutzer mit der angegebenen ID gefunden.")
         count = Order.objects.filter(
             business_user__id=pk,
             status='completed'
